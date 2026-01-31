@@ -7,6 +7,8 @@ from controllers import DataController, ProjectController
 import aiofiles
 from models import ResponseSignal
 import logging
+from .schemes.data import ProcessRequest
+# from src.routes.schemas.data import ProcessRequest
 
 logger = logging.getLogger('uvicorn.error')
 
