@@ -7,8 +7,10 @@ from controllers import DataController, ProjectController, ProcessController
 import aiofiles
 from models import ResponseSignal
 from models.ProjectModel import ProjectModel
+from models.ChunkModel import ChunkModel
 import logging
 from .schemas.data import ProcessRequest
+from models.db_schemas import DataChunk
 
 # from src.routes.schemas.data import ProcessRequest
 
@@ -77,12 +79,19 @@ async def upload_data(
     
     
 @data_router.post("/process/{project_id}")
-async def process_endpoint(project_id: str, process_request: ProcessRequest):
+async def process_endpoint(request: Request, project_id: str, process_request: ProcessRequest):
     
     file_id = process_request.file_id
     chunk_size = process_request.chunk_size
     overlap_size = process_request.overlap_size
+    do_reset = process_request.do_reset
     
+    project_model = ProjectModel(
+        db_client=request.app.db_client
+    )
+    
+    project = await project_model.get_project_or_create_one(project_id=project_id)
+             
     process_controller = ProcessController(project_id=project_id)
     
     file_content = process_controller.get_file_content(file_id=file_id)
@@ -100,4 +109,30 @@ async def process_endpoint(project_id: str, process_request: ProcessRequest):
             }
         )
     
-    return file_chunks
+    file_chunks_records = [
+        DataChunk(
+            chunk_text=chunk.page_content,
+            chunk_metadata=chunk.metadata,
+            chunk_order=i+1,
+            project_id=project.project_id
+        )
+        for i, chunk in enumerate(file_chunks)
+    ]
+    
+        
+    chunk_model = ChunkModel(
+        db_client=request.app.db_client
+    )
+    
+    if do_reset==1:
+        _ = await chunk_model.delete_chunks_by_project_id(project_id=project.project_id)
+  
+    
+    no_records = await chunk_model.insert_many_chunks(chunks=file_chunks_records)
+    
+    return JSONResponse(
+        content={
+            "signal": ResponseSignal.PROCESSING_SUCCESS.value,
+            "inserted_chunks": no_records
+        }
+    )
