@@ -9,7 +9,10 @@ class ProjectModel(BaseDataModel):
         self.collection = self.db_client[DataBaseEnums.COLLECTION_PROJECT_NAME.value]
         
     async def create_project(self, project: Project):
+        
         data = project.dict(by_alias=True, exclude={"id"})
+        # data = project.dict(by_alias=True, exclude_unset=True)
+        
         result = await self.collection.insert_one(data)
         # result = await self.collection.insert_one(project.dict())
         
