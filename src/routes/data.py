@@ -8,9 +8,12 @@ import aiofiles
 from models import ResponseSignal
 from models.ProjectModel import ProjectModel
 from models.ChunkModel import ChunkModel
+from models.AssetModel import AssetModel
 import logging
 from .schemas.data import ProcessRequest
-from models.db_schemas import DataChunk
+from models.db_schemas import DataChunk, Asset
+# from models import AssetTypeEnum
+from models.enums.AssetTypeEnum import AssetTypeEnum
 
 # from src.routes.schemas.data import ProcessRequest
 
@@ -67,12 +70,25 @@ async def upload_data(
             }
         )
         
-            
+    
+    # Store the assets into database
+    asset_model = await AssetModel.create_instance(
+        db_client=request.app.db_client
+    )
+    asset_resource = Asset(
+        # id: Optional[Object Id] = Field(default=None, alias="_id")
+        asset_project_id=project.id,
+        asset_type="file",
+        asset_name=file_id,
+        asset_size=os.path.getsize(file_path)
+    )
+    
+    asset_record = await asset_model.create_asset(asset=asset_resource)
     
     return JSONResponse(
         content={
             "signal" : ResponseSignal.FILE_UPLOAD_SUCCESS.value,
-            "file_id" : file_id,
+            "file_id" : str(asset_record.id),
             # "project_id" : str(project.id)
         }
     )
