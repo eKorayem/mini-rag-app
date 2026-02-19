@@ -1,10 +1,9 @@
 from ..LLMInterface import LLMInterface
-from ..LLMEnums import CoHereEnums, DocumentTypeEnums
-import cohere
+from ..LLMEnums import GroqEnums, DocumentTypeEnums
+import groq
 import logging
 
-
-class CoHereProvider(LLMInterface):
+class GroqProvider(LLMInterface):
     def __init__(self, api_key: str, 
                     defualt_input_max_characters: int=1000, 
                     defualt_generation_max_out_tokens: int=1000,
@@ -21,7 +20,7 @@ class CoHereProvider(LLMInterface):
         self.embedding_model_id = None
         self.embedding_size = None
         
-        self.client = cohere.Client(api_key=self.api_key)
+        self.client = groq.Client(api_key=self.api_key)
         
         self.logger = logging.getLogger(__name__)
     
@@ -30,68 +29,53 @@ class CoHereProvider(LLMInterface):
         self.generation_model_id = model_id
         
     def set_embedding_model(self, model_id: str, embedding_size: int):
-        self.embedding_model_id = model_id
-        self.embedding_size = embedding_size
-        
+        self.logger.warning("Groq does not support embeddings. This method does nothing.")
+        return None
         
     def process_text(self, text: str):
         return text[:self.defualt_input_max_characters+1].strip()
-    
+
     def generate_text(self, prompt: str, chat_history: list=[],
                       max_output_tokens: int=None,
                       temperature: float = None):
-        
         if not self.client:
-            self.logger.error("CoHere client was NOT set")
+            self.logger.error("Groq client was NOT set")
             return None
         
         if not self.generation_model_id:
-            self.logger.error("Generation model for CoHere was NOT set")
+            self.logger.error("Generation model for Groq was NOT set")
             return None
         
         max_output_tokens = max_output_tokens if max_output_tokens else self.defualt_generation_max_out_tokens
         temperature = temperature if temperature else self.default_generation_temperature
         
-        response = self.client.chat(
-            model=self.generation_model_id,
-            chat_history=chat_history,
-            message=self.process_text(prompt),
-            temperature=temperature,
-            max_tokens=max_output_tokens
+        messages = chat_history.copy()
+        messages.append(
+            self.construct_prompt(prompt=prompt, role=GroqEnums.USER.value)
         )
         
-        if not response or not response.text:
-            self.logger.error("No response from CoHere API")
-            return None
+        response = self.client.chat.completions.create(
+            messages=messages,
+            model=self.generation_model_id,
+            max_tokens=max_output_tokens,
+            temperature=temperature
+        )
         
-        return response.text
+        if not response or not response.choices:
+            self.logger.error("Error while generating text with Groq")
+            return None
+
+        return response.choices[0].message.content
+    
+    def embed_text(self, text: str, document_type: str=None):
+        self.logger.warning("Groq does not provide embeddings. Returning None.")
+        raise NotImplementedError("Groq does not support embeddings. Use LocalProvider instead.")
+        
+    
+    
     
     def construct_prompt(self, prompt: str, role: str):
         return {
             "role" : role, 
-            "text" : self.process_text(prompt)
+            "content" : self.process_text(prompt)
         }
-    
-    def embed_text(self, text: str, document_type: str=None):
-        if not self.client:
-            self.logger.error("CoHere client was NOT set")
-            return None
-        
-        if not self.embedding_model_id:
-            self.logger.error("Embedding model for CoHere was NOT set")
-            return None
-        
-        input_type = CoHereEnums.DOCUMENT.value if document_type==DocumentTypeEnums.DOCUMENT else CoHereEnums.QUERY.value
-        response = self.client.embed(
-            texts=[self.process_text(text=text)],
-            model=self.embedding_model_id,
-            input_type= input_type,
-            embedding_types=["float"]
-            # output_dimension=self.,
-        )
-        
-        if not response or not response.embeddings or len(response.embeddings)==0 or not response.embeddings.float:
-            self.logger.error("Error while embedding text with CoHere")
-            return None
-
-        return response.embeddings[0]
