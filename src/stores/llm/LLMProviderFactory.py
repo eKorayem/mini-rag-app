@@ -1,5 +1,5 @@
 from .LLMEnums import LLMEnums
-from .providers import OPENAIProvider, COHEREProvider, GroqProvider
+from .providers import OPENAIProvider, COHEREProvider, GroqProvider, SentenceTransformerProvider
 
 class LLMProviderFactory:
     def __init__(self, config: dict):
@@ -27,6 +27,13 @@ class LLMProviderFactory:
             return GroqProvider(
                 api_key=self.config.GROQ_API_KEY,
                 defualt_input_max_characters=self.config.INPUT_DAFAULT_MAX_CHARACTERS, 
+                defualt_generation_max_out_tokens=self.config.GENERATION_DAFAULT_MAX_TOKENS,
+                default_generation_temperature=self.config.GENERATION_DAFAULT_TEMPERATURE
+            )
+        
+        elif provider == LLMEnums.SENTENCE_TRANSFORMER.value:
+            return SentenceTransformerProvider(
+                defualt_input_max_characters=self.config.INPUT_DAFAULT_MAX_CHARACTERS,
                 defualt_generation_max_out_tokens=self.config.GENERATION_DAFAULT_MAX_TOKENS,
                 default_generation_temperature=self.config.GENERATION_DAFAULT_TEMPERATURE
             )
