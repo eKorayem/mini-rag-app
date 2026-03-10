@@ -12,60 +12,20 @@ class StructureController(BaseController):
         self.generation_client = generation_client
         self.logger = logging.getLogger(__name__)
     
-    # async def analyze_lecture_structure(
-    #     self, 
-    #     chunk_model: ChunkModel,
-    #     project_id: str,
-    #     max_topics: int = None
-    # ):
-    #     """
-    #     Analyze chunks and extract topics/subtitles structure
-    #     """
-        
-    #     # 1. Get all chunks for this project
-    #     chunks = await chunk_model.get_chunks_by_project_id(
-    #         project_id=project_id,
-    #         page_no=1,
-    #         page_size=1000  # Get all chunks
-    #     )
-    #     print("Chunks retrieved:", len(chunks))
-
-    #     if not chunks or len(chunks) == 0:
-    #         self.logger.error(f"No chunks found for project {project_id}")
-    #         return None
-        
-    #     # 2. Combine chunks into full text (limit for context window)
-    #     # For books, analyze first 100 chunks instead of 20
-    #     full_text = "\n\n".join([chunk.chunk_text for chunk in chunks])
-    #     # full_text = full_text[:200000]  # Increase to 20k characters
-    #     print("FULL TEXT for LLM:\n", full_text)  # Print first 2000 chars
-        
-    #     # 3. Build prompt for LLM
-    #     prompt = self._build_structure_prompt(full_text, max_topics)
-        
-    #     # 4. Call LLM
-    #     try:
-    #         response = self.generation_client.generate_text(
-    #             prompt=prompt,
-    #             temperature=self.app_settings.GENERATION_DAFAULT_TEMPERATURE,
-    #             max_output_tokens=self.app_settings.GENERATION_DAFAULT_MAX_TOKENS
-    #         )
-            
-    #         # 5. Parse JSON response
-    #         structure = self._parse_structure_response(response)
-    #         return structure
-            
-    #     except Exception as e:
-    #         self.logger.error(f"Error analyzing structure: {e}")
-    #         return None
+    
     
     
     async def analyze_lecture_structure(
-    self, 
-    chunk_model: ChunkModel,
-    project_id: str,
-    max_topics: int = None
-):
+        self, 
+        chunk_model: ChunkModel,
+        project_id: str,
+        max_topics: int = None
+    ):
+        """
+        Analyze chunks and extract topics/subtitles structure
+        """
+        
+        # 1. Get all chunks
         chunks = await chunk_model.get_chunks_by_project_id(
             project_id=project_id,
             page_no=1,
@@ -73,23 +33,57 @@ class StructureController(BaseController):
         )
         
         if not chunks:
+            self.logger.error(f"No chunks found for project {project_id}")
             return None
         
-        self.logger.info(f"Analyzing {len(chunks)} chunks")
+        total_chunks = len(chunks)
+        self.logger.info(f"Analyzing {total_chunks} chunks")
         
-        # Split into sections (every 50 chunks = ~1 chapter)
-        section_size = 50
-        all_topics = []
+        # 2. Adaptive sampling based on document size
+        if total_chunks <= 30:
+            # Short document (slides, article) - use all
+            sampled_chunks = chunks
+            self.logger.info("Short document: using all chunks")
+            
+        elif total_chunks <= 100:
+            # Medium document (lecture notes) - use first 80%
+            sampled_chunks = chunks[:int(total_chunks * 0.8)]
+            self.logger.info(f"Medium document: using first {len(sampled_chunks)} chunks")
+            
+        else:
+            # Long document (book) - intelligent sampling
+            # Take from beginning, multiple middle points, and end
+            sample_size = 30
+            num_samples = 4  # Beginning + 2 middle + end
+            
+            sampled_chunks = []
+            # Beginning
+            sampled_chunks.extend(chunks[:sample_size])
+            
+            # Middle samples
+            mid1 = total_chunks // 3
+            mid2 = (2 * total_chunks) // 3
+            sampled_chunks.extend(chunks[mid1:mid1+sample_size])
+            sampled_chunks.extend(chunks[mid2:mid2+sample_size])
+            
+            # End
+            sampled_chunks.extend(chunks[-sample_size:])
+            
+            self.logger.info(f"Long document: sampled {len(sampled_chunks)} from {total_chunks} chunks")
         
-        for i in range(0, len(chunks), section_size):
-            section_chunks = chunks[i:i+section_size]
-            section_text = "\n\n".join([c.chunk_text for c in section_chunks])
-            section_text = section_text[:15000]  # Limit each section
-            
-            self.logger.info(f"Analyzing section {i//section_size + 1}")
-            
-            # Analyze this section
-            prompt = self._build_structure_prompt(section_text, max_topics)
+        # 3. Create text from samples
+        full_text = "\n\n".join([c.chunk_text for c in sampled_chunks])
+        
+        # 4. Limit to max input characters
+        max_chars = self.app_settings.INPUT_DAFAULT_MAX_CHARACTERS
+        if len(full_text) > max_chars:
+            full_text = full_text[:max_chars]
+            self.logger.info(f"Truncated text to {max_chars} characters")
+        
+        # 5. Build prompt and analyze
+        prompt = self._build_structure_prompt(full_text, max_topics)
+        
+        try:
             response = self.generation_client.generate_text(
                 prompt=prompt,
                 temperature=self.app_settings.GENERATION_DAFAULT_TEMPERATURE,
@@ -97,14 +91,15 @@ class StructureController(BaseController):
             )
             
             structure = self._parse_structure_response(response)
+            
             if structure and "topics" in structure:
-                all_topics.extend(structure["topics"])
-        
-        # Combine all sections and fix ordering
-        for idx, topic in enumerate(all_topics):
-            topic["order"] = idx + 1
-        
-        return {"topics": all_topics}
+                self.logger.info(f"Successfully extracted {len(structure['topics'])} topics")
+            
+            return structure
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing structure: {e}")
+            return None
     
     def _build_structure_prompt(self, text: str, max_topics: int=None) -> str:
         """Build prompt for structure analysis"""
